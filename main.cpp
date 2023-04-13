@@ -73,6 +73,7 @@ matrix::matrix(int row_length, int col_length) {
 }
 
 matrix::~matrix() {
+  std::cout << "called matrix delete" << std::endl;
   delete[] arr;
 }
 
@@ -87,6 +88,85 @@ int matrix::get(int i, int j) {
 void matrix::put(int i, int j, int val) {
   arr[get_index(i, j)] = val;
 }
+
+// hc_env struct
+class hc_env {
+  public:
+    static hc_env* init_env_from_config(char *config_file_path);
+    int processor_count;
+    int task_count;
+    graph* dag;
+    matrix* data;
+    matrix* transfer_rates;
+    matrix* execution_costs;
+    hc_env(int processor_count, int task_count, graph* dag, matrix* data, matrix* transfer_rates, matrix* execution_costs);
+    ~hc_env();
+};
+
+hc_env::hc_env(int processor_count, int task_count, graph* dag, matrix* data, matrix* transfer_rates, matrix* execution_costs) {
+  this->processor_count = processor_count;
+  this->task_count = task_count;
+  this->dag = dag;
+  this->data = data;
+  this->transfer_rates = transfer_rates;
+  this->execution_costs = execution_costs;
+}
+
+hc_env::~hc_env() {
+  std::cout << "called delete" << std::endl;
+  delete dag;
+  delete data;
+  delete transfer_rates;
+  delete execution_costs;
+}
+
+hc_env* hc_env::init_env_from_config(char *config_file_path) {
+  std::ifstream config_file(config_file_path);
+
+  if (!config_file.is_open()) {
+    std::cout << "Error! Couldn't open the file." << std::endl;
+    exit(1);
+  }
+
+  int task_count, edge_count, processor_count = 0;
+  config_file >> task_count >> edge_count >> processor_count;
+  graph* dag = new graph(task_count);
+  matrix* data = new matrix(task_count, task_count);
+  matrix* execution_costs = new matrix(task_count, processor_count);
+  matrix* transfer_rates = new matrix(processor_count, processor_count);
+  int a, b, c, i, j;
+
+  for (i = 0; i < edge_count; i++) {
+    config_file >> a >> b >> c;
+    a--;
+    b--;
+    dag->add_edge(a, b);
+    data->put(a, b, c);
+    data->put(b, a, c);
+  }
+
+  for (i = 0; i < task_count; i++) {
+    for (j = 0; j < processor_count; j++) {
+      config_file >> a;
+      execution_costs->put(i, j, a);
+    }
+  }
+
+  int n = (processor_count * processor_count - processor_count) / 2;
+
+  for (i = 0; i < n; i++) {
+    config_file >> a >> b >> c;
+    a--;
+    b--;
+    transfer_rates->put(a, b, c);
+    transfer_rates->put(b, a, c);
+  }
+
+  config_file.close();
+
+  return new hc_env(processor_count, task_count, dag, data, transfer_rates, execution_costs);
+}
+
 
 // main stuff
 enum AlgorithmId {
@@ -109,52 +189,10 @@ int main(int argc, char *argv[]) {
   std::cout << algorithm_id << std::endl;
   // lets read from file here.
   // then I will separate this part for separation of concenrs
-  std::ifstream config_file(argv[2]);
-
-  if (!config_file.is_open()) {
-    std::cout << "Error! Couldn't open the file." << std::endl;
-    return 1;
-  }
-
-  int task_count, edge_count, processor_count = 0;
-  config_file >> task_count >> edge_count >> processor_count;
-  std::cout << task_count << " " << edge_count << " " << processor_count << std::endl;
-  graph dag(task_count);
-  matrix data(task_count, task_count);
-  matrix execution_costs(task_count, processor_count);
-  matrix transfer_rates(processor_count, processor_count);
-  int a, b, c, i, j;
-
-  for (i = 0; i < edge_count; i++) {
-    config_file >> a >> b >> c;
-    a--;
-    b--;
-    dag.add_edge(a, b);
-    data.put(a, b, c);
-    data.put(b, a, c);
-  }
-
-  for (i = 0; i < task_count; i++) {
-    for (j = 0; j < processor_count; j++) {
-      config_file >> a;
-      execution_costs.put(i, j, a);
-    }
-  }
-
-  int n = (processor_count * processor_count - processor_count) / 2;
-
-  for (i = 0; i < n; i++) {
-    config_file >> a >> b >> c;
-    a--;
-    b--;
-    transfer_rates.put(a, b, c);
-    transfer_rates.put(b, a, c);
-  }
-
-  std::cout << transfer_rates.get(0, 0) << std::endl;
-  std::cout << transfer_rates.get(2, 1) << std::endl;
-
-  config_file.close();
+  hc_env *hc_env = hc_env::init_env_from_config(argv[2]);
+  std::cout << hc_env->processor_count << std::endl;
+  std::cout << hc_env->task_count << std::endl;
+  delete hc_env;
 
   return 0;
 }
