@@ -2,6 +2,7 @@
 #include <string>
 #include <fstream>
 #include <vector>
+#include <algorithm>
 
 // command line arguments:
 //
@@ -28,25 +29,35 @@ class graph {
   private:
     int task_count;
     std::vector<std::vector<int>> adjacency_list;
-    std::vector<std::vector<int>> predecessor_list;
+    std::vector<std::vector<int>> successor_list;
   public:
     graph(int task_count);
     void add_edge(int a, int b);
+    std::vector<int> get_successors_of(int i);
+    std::vector<int> get_predecessors_of(int i);
 };
 
 graph::graph(int task_count) {
   this->task_count = task_count;
   for (int i = 0; i < task_count; i++) {
     std::vector<int> edge_list;
-    std::vector<int> p_edge_list;
+    std::vector<int> s_edge_list;
     this->adjacency_list.push_back(edge_list);
-    this->predecessor_list.push_back(p_edge_list);
+    this->successor_list.push_back(s_edge_list);
   }
 }
 
 void graph::add_edge(int a, int b) {
   this->adjacency_list.at(a).push_back(b);
-  this->predecessor_list.at(b).push_back(a);
+  this->successor_list.at(b).push_back(a);
+}
+
+std::vector<int> graph::get_successors_of(int i) {
+  return successor_list.at(i);
+}
+
+std::vector<int> graph::get_predecessors_of(int i) {
+  return adjacency_list.at(i);
 }
 
 // matrix class
@@ -73,7 +84,6 @@ matrix::matrix(int row_length, int col_length) {
 }
 
 matrix::~matrix() {
-  std::cout << "called matrix delete" << std::endl;
   delete[] arr;
 }
 
@@ -113,7 +123,6 @@ hc_env::hc_env(int processor_count, int task_count, graph* dag, matrix* data, ma
 }
 
 hc_env::~hc_env() {
-  std::cout << "called delete" << std::endl;
   delete dag;
   delete data;
   delete transfer_rates;
@@ -174,8 +183,48 @@ enum AlgorithmId {
   cpop = 2
 };
 
-void run_heft(graph dag, matrix data, matrix transfer_rates, matrix execution_costs);
-void run_cpop(graph dag, matrix data, matrix transfer_rates, matrix execution_costs);
+namespace rank {
+  double get_avg_communication_cost(hc_env *hc_env, int i, int j) {
+    double avg_transfer_rate = 0.0;
+    for (int p_j = 0; p_j < hc_env->processor_count - 1; p_j++)
+      avg_transfer_rate += (double)hc_env->transfer_rates->get(p_j, p_j + 1);
+    avg_transfer_rate /= (double)(hc_env->processor_count - 1);
+    return (double)hc_env->data->get(i, j) / avg_transfer_rate;
+  };
+
+  double get_avg_execution_cost(hc_env *hc_env, int i) {
+    double w_sum = 0.0;
+    for (int p_j = 0; p_j < hc_env->processor_count; p_j++)
+      w_sum += (double)hc_env->execution_costs->get(i, p_j);
+    return w_sum / hc_env->processor_count;
+  };
+
+  double find_upward(hc_env *hc_env, int i) {
+    double w = get_avg_execution_cost(hc_env, i);
+    std::vector<int> succ_i = hc_env->dag->get_successors_of(i);
+    double max = 0.0;
+    for (int n = 0; n < succ_i.size(); n++) {
+      int j = succ_i.at(n);
+      max = std::max(max, get_avg_communication_cost(hc_env, i, j) + find_upward(hc_env, j));
+    }
+    return w + max;
+  };
+
+  double find_downward(hc_env *hc_env, int i) {
+    std::vector<int> pred_i = hc_env->dag->get_predecessors_of(i);
+    double max = 0.0;
+    for (int n = 0; n < pred_i.size(); n++) {
+      int j = pred_i.at(n);
+      double w = get_avg_execution_cost(hc_env, j);
+      double c = get_avg_communication_cost(hc_env, j, i);
+      max = std::max(max, w + c + find_downward(hc_env, j));
+    }
+    return max;
+  }
+}
+
+void run_heft(hc_env *hc_env);
+void run_cpop(hc_env *hc_env);
 
 int main(int argc, char *argv[]) {
   if (argc != 3) {
@@ -186,20 +235,49 @@ int main(int argc, char *argv[]) {
   }
 
   int algorithm_id = atoi(argv[1]);
-  std::cout << algorithm_id << std::endl;
-  // lets read from file here.
-  // then I will separate this part for separation of concenrs
   hc_env *hc_env = hc_env::init_env_from_config(argv[2]);
-  std::cout << hc_env->processor_count << std::endl;
-  std::cout << hc_env->task_count << std::endl;
+
+  switch (algorithm_id) {
+    case heft:
+      run_heft(hc_env);
+      break;
+    case cpop:
+      run_cpop(hc_env);
+    default:
+      break;
+  }
+
   delete hc_env;
 
   return 0;
 }
 
-void run_heft(graph dag, matrix data, matrix transfer_rates, matrix execution_costs) {
-  // EFT - earliest finish time
-  //
+// TODO:
+// implement EST function
+// implement EFT function
+// implement rank_d function: DONE
+// implement rank_u function: DONE
+
+struct task {
+  double rank;
+  int node;
+};
+
+std::vector<task> make_sorted_upward_task_list(hc_env *hc_env) {
+  std::vector<task> list;
+  int task_count = hc_env->task_count;
+  for (int i = task_count - 1; i >= 0; i--) {
+    list.push_back(task());
+    list.at(task_count - 1 - i).rank = rank::find_upward(hc_env, i);
+    list.at(task_count - 1 - i).node = i;
+  }
+  return list;
+}
+
+void run_heft(hc_env *hc_env) {
+  std::cout << "heft " << std::endl;
+  std::vector<task> t_available = make_sorted_upward_task_list(hc_env);
+  std::cout << "Size: " << t_available.size() << std::endl;
   // compute rank upward, starting from the end node
   // sort the nodes in a list by nonincreasing order of rank upward values
   // while there are unscheduled nodes in the list do:
@@ -208,7 +286,12 @@ void run_heft(graph dag, matrix data, matrix transfer_rates, matrix execution_co
   // end
 }
 
-void run_cpop(graph dag, matrix data, matrix transfer_rates, matrix execution_costs) {
+void run_cpop(hc_env *hc_env) {
+  std::cout << "cpop" << std::endl;
+  std::cout << hc_env->processor_count << std::endl;
+  for (int i = 0; i < hc_env->task_count; i++) {
+    std::cout << "Rank of " << i << ": " << rank::find_downward(hc_env, i) << std::endl;
+  }
   // cpop...
 }
 
