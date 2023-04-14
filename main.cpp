@@ -2,7 +2,11 @@
 #include <string>
 #include <fstream>
 #include <vector>
+#include <queue>
+#include <float.h>
 #include <algorithm>
+
+// TODO: i should also add implementation of communication startup costs L perhaps...
 
 // command line arguments:
 //
@@ -29,7 +33,7 @@ class graph {
   private:
     int task_count;
     std::vector<std::vector<int>> adjacency_list;
-    std::vector<std::vector<int>> successor_list;
+    std::vector<std::vector<int>> predecessor_list;
   public:
     graph(int task_count);
     void add_edge(int a, int b);
@@ -41,23 +45,23 @@ graph::graph(int task_count) {
   this->task_count = task_count;
   for (int i = 0; i < task_count; i++) {
     std::vector<int> edge_list;
-    std::vector<int> s_edge_list;
+    std::vector<int> p_edge_list;
     this->adjacency_list.push_back(edge_list);
-    this->successor_list.push_back(s_edge_list);
+    this->predecessor_list.push_back(p_edge_list);
   }
 }
 
 void graph::add_edge(int a, int b) {
   this->adjacency_list.at(a).push_back(b);
-  this->successor_list.at(b).push_back(a);
+  this->predecessor_list.at(b).push_back(a);
 }
 
 std::vector<int> graph::get_successors_of(int i) {
-  return successor_list.at(i);
+  return adjacency_list.at(i);
 }
 
 std::vector<int> graph::get_predecessors_of(int i) {
-  return adjacency_list.at(i);
+  return predecessor_list.at(i);
 }
 
 // matrix class
@@ -184,6 +188,14 @@ enum AlgorithmId {
 };
 
 namespace rank {
+  double get_communication_cost(hc_env *hc_env, int i, int j, int p1, int p2) {
+    if (p1 == p2) {
+      return 0.0;
+    }
+
+    return (double)hc_env->data->get(i, j) / (double)hc_env->transfer_rates->get(p1, p2);
+  }
+
   double get_avg_communication_cost(hc_env *hc_env, int i, int j) {
     double avg_transfer_rate = 0.0;
     for (int p_j = 0; p_j < hc_env->processor_count - 1; p_j++)
@@ -201,24 +213,37 @@ namespace rank {
 
   double find_upward(hc_env *hc_env, int i) {
     double w = get_avg_execution_cost(hc_env, i);
+
+    // if exit task, return the average execution cost
+    if (i == hc_env->processor_count - 1)
+      return w;
+
     std::vector<int> succ_i = hc_env->dag->get_successors_of(i);
     double max = 0.0;
+
     for (int n = 0; n < succ_i.size(); n++) {
       int j = succ_i.at(n);
       max = std::max(max, get_avg_communication_cost(hc_env, i, j) + find_upward(hc_env, j));
     }
+
     return w + max;
   };
 
   double find_downward(hc_env *hc_env, int i) {
+    // if entry task, return rank 0
+    if (i == 0)
+      return 0.0;
+
     std::vector<int> pred_i = hc_env->dag->get_predecessors_of(i);
     double max = 0.0;
+
     for (int n = 0; n < pred_i.size(); n++) {
       int j = pred_i.at(n);
       double w = get_avg_execution_cost(hc_env, j);
       double c = get_avg_communication_cost(hc_env, j, i);
       max = std::max(max, w + c + find_downward(hc_env, j));
     }
+
     return max;
   }
 }
@@ -261,29 +286,90 @@ int main(int argc, char *argv[]) {
 struct task {
   double rank;
   int node;
+  bool operator > (const task& other_task) const {
+    return (rank > other_task.rank);
+  }
 };
 
-std::vector<task> make_sorted_upward_task_list(hc_env *hc_env) {
+struct process {
+  int task_node_id;
+  //double start_time;
+  double end_time;
+  int processor_id;
+};
+
+std::queue<task> convert_task_list_to_queue(std::vector<task> list) {
+  std::queue<task> q;
+  for (int i = 0; i < list.size(); i++)
+    q.push(list.at(i));
+  return q;
+}
+
+std::queue<task> make_sorted_upward_task_queue(hc_env *hc_env) {
   std::vector<task> list;
   int task_count = hc_env->task_count;
   for (int i = task_count - 1; i >= 0; i--) {
-    list.push_back(task());
-    list.at(task_count - 1 - i).rank = rank::find_upward(hc_env, i);
-    list.at(task_count - 1 - i).node = i;
+    task task_i = {rank::find_upward(hc_env, i), i};
+    list.push_back(task_i);
   }
-  return list;
+  std::sort(list.begin(), list.end(), std::greater<task>());
+  return convert_task_list_to_queue(list);
+}
+
+double est(hc_env *hc_env, double *avail, process *scheduled, int i, int p) {
+  if (i == 0) {
+    return 0;
+  }
+
+  double max = 0;
+  std::vector<int> pred_i = hc_env->dag->get_predecessors_of(i);
+  for (int n = 0; n < pred_i.size(); n++) {
+    int j = pred_i.at(n);
+    double aft = scheduled[j].end_time;
+    double transfer_time = rank::get_communication_cost(hc_env, j, i, scheduled[j].processor_id, p);
+    max = std::max(max, aft + transfer_time);
+  }
+
+  return std::max(max, avail[p]);
+}
+
+double eft(hc_env *hc_env, double *avail, process *scheduled, int i, int p) {
+  return (double)hc_env->execution_costs->get(i, p) + est(hc_env, avail, scheduled, i, p);
 }
 
 void run_heft(hc_env *hc_env) {
   std::cout << "heft " << std::endl;
-  std::vector<task> t_available = make_sorted_upward_task_list(hc_env);
-  std::cout << "Size: " << t_available.size() << std::endl;
-  // compute rank upward, starting from the end node
-  // sort the nodes in a list by nonincreasing order of rank upward values
-  // while there are unscheduled nodes in the list do:
-  //   select the first task ni in the list and remove it
-  //   assign the task ni to the processor pj that minimizes the EFT value of ni
-  // end
+  double* avail = new double[hc_env->processor_count];
+  std::fill(avail, avail + hc_env->processor_count, 0.0);
+  std::queue<task> waiting_tasks = make_sorted_upward_task_queue(hc_env);
+  process* scheduled = new process[hc_env->task_count];
+  while (!waiting_tasks.empty()) {
+    task curr_task = waiting_tasks.front();
+    double min_eft = DBL_MAX;
+    int min_processor_id = 0;
+    for (int p = 0; p < hc_env->processor_count; p++) {
+      double curr_eft = eft(hc_env, avail, scheduled, curr_task.node, p);
+      if (curr_eft < min_eft) {
+        min_eft = curr_eft;
+        min_processor_id = p;
+      }
+    }
+    avail[min_processor_id] = min_eft;
+    process scheduled_process = {curr_task.node, min_eft, min_processor_id};
+    scheduled[curr_task.node] = scheduled_process;
+    waiting_tasks.pop();
+  }
+
+  double max_eft = -1;
+  for (int i = 0; i < hc_env->task_count; i++) {
+    std::cout << "Task: " << scheduled[i].task_node_id << ", finish time: " << scheduled[i].end_time << std::endl;
+    max_eft = std::max(max_eft, scheduled[i].end_time);
+  }
+
+  std::cout << "End: " << max_eft << std::endl;
+
+  delete[] avail;
+  delete[] scheduled;
 }
 
 void run_cpop(hc_env *hc_env) {
