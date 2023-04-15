@@ -338,22 +338,26 @@ double eft(hc_env *hc_env, double *avail, process *scheduled, int i, int p) {
 }
 
 void run_heft(hc_env *hc_env) {
-  std::cout << "heft " << std::endl;
+  process* scheduled = new process[hc_env->task_count];
   double* avail = new double[hc_env->processor_count];
   std::fill(avail, avail + hc_env->processor_count, 0.0);
   std::queue<task> waiting_tasks = make_sorted_upward_task_queue(hc_env);
-  process* scheduled = new process[hc_env->task_count];
+
   while (!waiting_tasks.empty()) {
     task curr_task = waiting_tasks.front();
+    std::cout << "Scheduling task " << curr_task.node << "..." << std::endl;
     double min_eft = DBL_MAX;
     int min_processor_id = 0;
+
     for (int p = 0; p < hc_env->processor_count; p++) {
       double curr_eft = eft(hc_env, avail, scheduled, curr_task.node, p);
+
       if (curr_eft < min_eft) {
         min_eft = curr_eft;
         min_processor_id = p;
       }
     }
+
     avail[min_processor_id] = min_eft;
     process scheduled_process = {curr_task.node, min_eft, min_processor_id};
     scheduled[curr_task.node] = scheduled_process;
@@ -373,11 +377,6 @@ void run_heft(hc_env *hc_env) {
 }
 
 void run_cpop(hc_env *hc_env) {
-  std::cout << "cpop" << std::endl;
-  std::cout << hc_env->processor_count << std::endl;
-  for (int i = 0; i < hc_env->task_count; i++) {
-    std::cout << "Rank of " << i << ": " << rank::find_downward(hc_env, i) << std::endl;
-  }
   // cpop...
 }
 
