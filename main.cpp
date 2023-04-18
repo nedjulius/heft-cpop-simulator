@@ -3,7 +3,9 @@
 #include <fstream>
 #include <vector>
 #include <queue>
+#include <set>
 #include <float.h>
+#include <math.h>
 #include <algorithm>
 
 // TODO: i should also add implementation of communication startup costs L perhaps...
@@ -277,12 +279,6 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-// TODO:
-// implement EST function
-// implement EFT function
-// implement rank_d function: DONE
-// implement rank_u function: DONE
-
 struct task {
   double rank;
   int node;
@@ -293,27 +289,67 @@ struct task {
 
 struct process {
   int task_node_id;
-  //double start_time;
   double end_time;
   int processor_id;
 };
 
-std::queue<task> convert_task_list_to_queue(std::vector<task> list) {
+std::queue<task> get_sorted_task_queue(std::vector<task> list) {
+  std::sort(list.begin(), list.end(), std::greater<task>());
   std::queue<task> q;
   for (int i = 0; i < list.size(); i++)
     q.push(list.at(i));
   return q;
 }
 
-std::queue<task> make_sorted_upward_task_queue(hc_env *hc_env) {
-  std::vector<task> list;
+std::vector<task> compute_upward_ranks(hc_env *hc_env) {
   int task_count = hc_env->task_count;
+  std::vector<task> list(task_count);
   for (int i = task_count - 1; i >= 0; i--) {
-    task task_i = {rank::find_upward(hc_env, i), i};
-    list.push_back(task_i);
+    list.at(i).rank = rank::find_upward(hc_env, i);
+    list.at(i).node = i;
   }
-  std::sort(list.begin(), list.end(), std::greater<task>());
-  return convert_task_list_to_queue(list);
+  return list;
+}
+
+std::vector<task> compute_downward_ranks(hc_env *hc_env) {
+  int task_count = hc_env->task_count;
+  std::vector<task> list(task_count);
+  for (int i = 0; i < task_count; i++) {
+    list.at(i).rank = rank::find_downward(hc_env, i);
+    list.at(i).node = i;
+  }
+  return list;
+}
+
+std::vector<task> compute_priority(hc_env *hc_env) {
+  int task_count = hc_env->task_count;
+  std::vector<task> priority_list(task_count);
+  std::vector<task> downward_rank_list = compute_downward_ranks(hc_env);
+  std::vector<task> upward_rank_list = compute_upward_ranks(hc_env);
+  for (int i = 0; i < task_count; i++) {
+    priority_list.at(i).rank = downward_rank_list.at(i).rank + upward_rank_list.at(i).rank;
+    priority_list.at(i).node = i;
+  }
+  return priority_list;
+}
+
+int get_pcp(hc_env *hc_env, std::set<int> set) {
+  int processor_count = hc_env->processor_count;
+  int min_execution_sum = INT_MAX;
+  int min_pcp = -1;
+
+  for (int j = 0; j < processor_count; j++) {
+    double curr_sum = 0.0;
+    for (const int &node_id : set) {
+      curr_sum += hc_env->execution_costs->get(node_id, j);
+    }
+    if (curr_sum < min_execution_sum) {
+      min_execution_sum = curr_sum;
+      min_pcp = j;
+    }
+  }
+
+  return min_pcp;
 }
 
 double est(hc_env *hc_env, double *avail, process *scheduled, int i, int p) {
@@ -337,11 +373,32 @@ double eft(hc_env *hc_env, double *avail, process *scheduled, int i, int p) {
   return (double)hc_env->execution_costs->get(i, p) + est(hc_env, avail, scheduled, i, p);
 }
 
+void print_results(process *scheduled, int task_count, int processor_count) {
+  double max_end_time = -1;
+  std::vector<int> scheduled_processor_counts(processor_count, 0);
+
+  for (int i = 0; i < task_count; i++) {
+    std::cout << "--- task " << scheduled[i].task_node_id + 1 << " ---" << std::endl;
+    std::cout << "Finish time: " << scheduled[i].end_time << std::endl;
+    std::cout << "Processor: " << scheduled[i].processor_id << std::endl;
+    scheduled_processor_counts.at(scheduled[i].processor_id)++;
+    max_end_time = std::max(max_end_time, scheduled[i].end_time);
+  }
+
+  for (int i = 0; i < scheduled_processor_counts.size(); i++) {
+    std::cout << "Scheduled on processor " << i << ": " << scheduled_processor_counts.at(i) << std::endl;
+  }
+
+  std::cout << "End: " << max_end_time << std::endl;
+}
+
 void run_heft(hc_env *hc_env) {
-  process* scheduled = new process[hc_env->task_count];
-  double* avail = new double[hc_env->processor_count];
-  std::fill(avail, avail + hc_env->processor_count, 0.0);
-  std::queue<task> waiting_tasks = make_sorted_upward_task_queue(hc_env);
+  int task_count = hc_env->task_count;
+  int processor_count = hc_env->processor_count;
+  process* scheduled = new process[task_count];
+  double* avail = new double[processor_count];
+  std::fill(avail, avail + processor_count, 0.0);
+  std::queue<task> waiting_tasks = get_sorted_task_queue(compute_upward_ranks(hc_env));
 
   while (!waiting_tasks.empty()) {
     task curr_task = waiting_tasks.front();
@@ -349,7 +406,7 @@ void run_heft(hc_env *hc_env) {
     double min_eft = DBL_MAX;
     int min_processor_id = 0;
 
-    for (int p = 0; p < hc_env->processor_count; p++) {
+    for (int p = 0; p < processor_count; p++) {
       double curr_eft = eft(hc_env, avail, scheduled, curr_task.node, p);
 
       if (curr_eft < min_eft) {
@@ -364,19 +421,84 @@ void run_heft(hc_env *hc_env) {
     waiting_tasks.pop();
   }
 
-  double max_eft = -1;
-  for (int i = 0; i < hc_env->task_count; i++) {
-    std::cout << "Task: " << scheduled[i].task_node_id << ", finish time: " << scheduled[i].end_time << std::endl;
-    max_eft = std::max(max_eft, scheduled[i].end_time);
-  }
-
-  std::cout << "End: " << max_eft << std::endl;
+  print_results(scheduled, task_count, processor_count);
 
   delete[] avail;
   delete[] scheduled;
 }
 
+bool cmpf(double a, double b, double epsilon = 0.005f) {
+  return (fabs(a - b) < epsilon);
+}
+
 void run_cpop(hc_env *hc_env) {
-  // cpop...
+  int task_count = hc_env->task_count;
+  int processor_count = hc_env->processor_count;
+  int end_task_node_id = task_count - 1;
+  process* scheduled = new process[task_count];
+  double* avail = new double[processor_count];
+  std::fill(avail, avail + processor_count, 0.0);
+  std::vector<task> priority_list = compute_priority(hc_env);
+  double cp = priority_list.at(0).rank;
+  std::set<int> set;
+  set.insert(0);
+  int nk = 0;
+
+  while (nk != end_task_node_id) {
+    std::vector<int> succ_nk = hc_env->dag->get_successors_of(nk);
+    for (int j = 0; j < succ_nk.size(); j++) {
+      int nj = succ_nk.at(j);
+      if (cmpf(priority_list.at(nj).rank, cp)) {
+        set.insert(nj);
+        nk = nj;
+        break;
+      }
+    }
+  }
+
+  int pcp = get_pcp(hc_env, set);
+  std::priority_queue<task, std::vector<task>, std::greater<task>> pq;
+  pq.push(priority_list.at(0));
+
+  while (!pq.empty()) {
+    task highest_priority_task = pq.top();
+    int i = highest_priority_task.node;
+    process scheduled_process = {i, 0, 0};
+
+    if (set.find(i) == set.end()) {
+      int end_time = hc_env->execution_costs->get(i, pcp) + avail[pcp];
+      scheduled_process.end_time = end_time;
+      scheduled_process.processor_id = pcp;
+    } else {
+      double min_eft = DBL_MAX;
+      int min_processor_id = 0;
+
+      for (int p = 0; p < processor_count; p++) {
+        double curr_eft = eft(hc_env, avail, scheduled, i, p);
+
+        if (curr_eft < min_eft) {
+          min_eft = curr_eft;
+          min_processor_id = p;
+        }
+      }
+
+      scheduled_process.end_time = min_eft;
+      scheduled_process.processor_id = min_processor_id;
+    }
+
+    avail[scheduled_process.processor_id] = scheduled_process.end_time;
+    scheduled[i] = scheduled_process;
+    pq.pop();
+
+    std::vector<int> succ_i = hc_env->dag->get_successors_of(i);
+    for (int j = 0; j < succ_i.size(); j++) {
+      pq.push(priority_list.at(succ_i.at(j)));
+    }
+  }
+
+  print_results(scheduled, task_count, processor_count);
+
+  delete[] scheduled;
+  delete[] avail;
 }
 
