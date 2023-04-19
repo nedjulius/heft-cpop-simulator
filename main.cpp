@@ -8,8 +8,6 @@
 #include <math.h>
 #include <algorithm>
 
-// TODO: i should also add implementation of communication startup costs L perhaps...
-
 // command line arguments:
 //
 // ./simulate A config
@@ -30,7 +28,6 @@
 // - the following (p^2 - p) / 2 lines stand for: <from> <to> <weight>
 //   - each line describes the data transfer rate between processor from and to with weight being bytes per second
 
-// graph class
 class graph {
   private:
     int task_count;
@@ -200,16 +197,20 @@ namespace rank {
 
   double get_avg_communication_cost(hc_env *hc_env, int i, int j) {
     double avg_transfer_rate = 0.0;
+
     for (int p_j = 0; p_j < hc_env->processor_count - 1; p_j++)
       avg_transfer_rate += (double)hc_env->transfer_rates->get(p_j, p_j + 1);
     avg_transfer_rate /= (double)(hc_env->processor_count - 1);
+
     return (double)hc_env->data->get(i, j) / avg_transfer_rate;
   };
 
   double get_avg_execution_cost(hc_env *hc_env, int i) {
     double w_sum = 0.0;
+
     for (int p_j = 0; p_j < hc_env->processor_count; p_j++)
       w_sum += (double)hc_env->execution_costs->get(i, p_j);
+
     return w_sum / hc_env->processor_count;
   };
 
@@ -217,7 +218,7 @@ namespace rank {
     double w = get_avg_execution_cost(hc_env, i);
 
     // if exit task, return the average execution cost
-    if (i == hc_env->processor_count - 1)
+    if (i == hc_env->task_count - 1)
       return w;
 
     std::vector<int> succ_i = hc_env->dag->get_successors_of(i);
@@ -285,10 +286,14 @@ struct task {
   bool operator > (const task& other_task) const {
     return (rank > other_task.rank);
   }
+  bool operator < (const task& other_task) const {
+    return (rank < other_task.rank);
+  }
 };
 
 struct process {
   int task_node_id;
+  double start_time;
   double end_time;
   int processor_id;
 };
@@ -296,28 +301,34 @@ struct process {
 std::queue<task> get_sorted_task_queue(std::vector<task> list) {
   std::sort(list.begin(), list.end(), std::greater<task>());
   std::queue<task> q;
+
   for (int i = 0; i < list.size(); i++)
     q.push(list.at(i));
+
   return q;
 }
 
 std::vector<task> compute_upward_ranks(hc_env *hc_env) {
   int task_count = hc_env->task_count;
   std::vector<task> list(task_count);
+
   for (int i = task_count - 1; i >= 0; i--) {
     list.at(i).rank = rank::find_upward(hc_env, i);
     list.at(i).node = i;
   }
+
   return list;
 }
 
 std::vector<task> compute_downward_ranks(hc_env *hc_env) {
   int task_count = hc_env->task_count;
   std::vector<task> list(task_count);
+
   for (int i = 0; i < task_count; i++) {
     list.at(i).rank = rank::find_downward(hc_env, i);
     list.at(i).node = i;
   }
+
   return list;
 }
 
@@ -326,14 +337,16 @@ std::vector<task> compute_priority(hc_env *hc_env) {
   std::vector<task> priority_list(task_count);
   std::vector<task> downward_rank_list = compute_downward_ranks(hc_env);
   std::vector<task> upward_rank_list = compute_upward_ranks(hc_env);
+
   for (int i = 0; i < task_count; i++) {
     priority_list.at(i).rank = downward_rank_list.at(i).rank + upward_rank_list.at(i).rank;
     priority_list.at(i).node = i;
   }
+
   return priority_list;
 }
 
-int get_pcp(hc_env *hc_env, std::set<int> set) {
+int find_pcp(hc_env *hc_env, std::set<int> set) {
   int processor_count = hc_env->processor_count;
   int min_execution_sum = INT_MAX;
   int min_pcp = -1;
@@ -343,6 +356,7 @@ int get_pcp(hc_env *hc_env, std::set<int> set) {
     for (const int &node_id : set) {
       curr_sum += hc_env->execution_costs->get(node_id, j);
     }
+
     if (curr_sum < min_execution_sum) {
       min_execution_sum = curr_sum;
       min_pcp = j;
@@ -359,8 +373,14 @@ double est(hc_env *hc_env, double *avail, process *scheduled, int i, int p) {
 
   double max = 0;
   std::vector<int> pred_i = hc_env->dag->get_predecessors_of(i);
+
   for (int n = 0; n < pred_i.size(); n++) {
     int j = pred_i.at(n);
+
+    // skip if not scheduled
+    if (scheduled[j].task_node_id == -1)
+      continue;
+
     double aft = scheduled[j].end_time;
     double transfer_time = rank::get_communication_cost(hc_env, j, i, scheduled[j].processor_id, p);
     max = std::max(max, aft + transfer_time);
@@ -373,36 +393,82 @@ double eft(hc_env *hc_env, double *avail, process *scheduled, int i, int p) {
   return (double)hc_env->execution_costs->get(i, p) + est(hc_env, avail, scheduled, i, p);
 }
 
+bool is_task_ready(hc_env *hc_env, int i, process *scheduled) {
+  std::vector<int> pred_i = hc_env->dag->get_predecessors_of(i);
+  bool is_ready = true;
+
+  for (int n = 0; n < pred_i.size(); n++) {
+    if (scheduled[pred_i.at(n)].processor_id == -1)
+      is_ready = false;
+  }
+
+  return is_ready;
+}
+
+void write_results(process *scheduled, int task_count, int processor_count, string write_file_path) {
+  ofstream wf(write_file_path);
+
+  if (!wf.is_open()) {
+    std::cout << "An unexpected error occurred while trying to open write file." << std::endl;
+    exit(1);
+  }
+
+  double max_end_time = -1;
+  std::vector<int> scheduled_processor_counts(processor_count, 0);
+
+  for (int i = 0; i < task_count; i++) {
+    wf << "--- task " << scheduled[i].task_node_id + 1 << " ---\n";
+    wf << "Start time: " << scheduled[i].start_time << "\n";
+    wf << "Finish time: " << scheduled[i].end_time << "\n";
+    wf << "Processor: " << scheduled[i].processor_id + 1 << "\n";
+    wf << "\n";
+    scheduled_processor_counts.at(scheduled[i].processor_id)++;
+    max_end_time = std::max(max_end_time, scheduled[i].end_time);
+  }
+
+  wf << "------\n";
+  for (int i = 0; i < scheduled_processor_counts.size(); i++)
+    wf << "Task count scheduled on processor " << i + 1 << ": " << scheduled_processor_counts.at(i) << "\n";
+
+  wf << "------\n";
+  wf << "Total execution time: " << max_end_time << "\n";
+  wf.close();
+}
+
 void print_results(process *scheduled, int task_count, int processor_count) {
   double max_end_time = -1;
   std::vector<int> scheduled_processor_counts(processor_count, 0);
 
   for (int i = 0; i < task_count; i++) {
     std::cout << "--- task " << scheduled[i].task_node_id + 1 << " ---" << std::endl;
+    std::cout << "Start time: " << scheduled[i].start_time << std::endl;
     std::cout << "Finish time: " << scheduled[i].end_time << std::endl;
-    std::cout << "Processor: " << scheduled[i].processor_id << std::endl;
+    std::cout << "Processor: " << scheduled[i].processor_id + 1 << std::endl;
+    std::cout << std::endl;
     scheduled_processor_counts.at(scheduled[i].processor_id)++;
     max_end_time = std::max(max_end_time, scheduled[i].end_time);
   }
 
-  for (int i = 0; i < scheduled_processor_counts.size(); i++) {
-    std::cout << "Scheduled on processor " << i << ": " << scheduled_processor_counts.at(i) << std::endl;
-  }
+  std::cout << "------" << std::endl;
+  for (int i = 0; i < scheduled_processor_counts.size(); i++)
+    std::cout << "Task count scheduled on processor " << i + 1 << ": " << scheduled_processor_counts.at(i) << std::endl;
 
-  std::cout << "End: " << max_end_time << std::endl;
+  std::cout << "------" << std::endl;
+  std::cout << "Total execution time: " << max_end_time << std::endl;
 }
 
 void run_heft(hc_env *hc_env) {
   int task_count = hc_env->task_count;
   int processor_count = hc_env->processor_count;
+
   process* scheduled = new process[task_count];
   double* avail = new double[processor_count];
   std::fill(avail, avail + processor_count, 0.0);
+  std::fill(scheduled, scheduled + task_count, process{-1, 0.0, 0.0, -1});
   std::queue<task> waiting_tasks = get_sorted_task_queue(compute_upward_ranks(hc_env));
 
   while (!waiting_tasks.empty()) {
     task curr_task = waiting_tasks.front();
-    std::cout << "Scheduling task " << curr_task.node << "..." << std::endl;
     double min_eft = DBL_MAX;
     int min_processor_id = 0;
 
@@ -416,7 +482,8 @@ void run_heft(hc_env *hc_env) {
     }
 
     avail[min_processor_id] = min_eft;
-    process scheduled_process = {curr_task.node, min_eft, min_processor_id};
+    double start_time = min_eft - hc_env->execution_costs->get(curr_task.node, min_processor_id);
+    process scheduled_process = {curr_task.node, start_time, min_eft, min_processor_id};
     scheduled[curr_task.node] = scheduled_process;
     waiting_tasks.pop();
   }
@@ -435,9 +502,11 @@ void run_cpop(hc_env *hc_env) {
   int task_count = hc_env->task_count;
   int processor_count = hc_env->processor_count;
   int end_task_node_id = task_count - 1;
+
   process* scheduled = new process[task_count];
   double* avail = new double[processor_count];
   std::fill(avail, avail + processor_count, 0.0);
+  std::fill(scheduled, scheduled + task_count, process{-1, 0.0, 0.0, -1});
   std::vector<task> priority_list = compute_priority(hc_env);
   double cp = priority_list.at(0).rank;
   std::set<int> set;
@@ -456,18 +525,23 @@ void run_cpop(hc_env *hc_env) {
     }
   }
 
-  int pcp = get_pcp(hc_env, set);
-  std::priority_queue<task, std::vector<task>, std::greater<task>> pq;
+  int pcp = find_pcp(hc_env, set);
+  std::priority_queue<task, std::vector<task>, std::less<task>> pq;
   pq.push(priority_list.at(0));
 
   while (!pq.empty()) {
     task highest_priority_task = pq.top();
     int i = highest_priority_task.node;
-    process scheduled_process = {i, 0, 0};
+    process scheduled_process = {i, 0, 0, 0};
 
-    if (set.find(i) == set.end()) {
-      int end_time = hc_env->execution_costs->get(i, pcp) + avail[pcp];
-      scheduled_process.end_time = end_time;
+    // check if the head is an unscheduled task
+    if (scheduled[i].task_node_id != -1) {
+      pq.pop();
+      continue;
+    }
+
+    if (set.count(i)) {
+      scheduled_process.end_time = eft(hc_env, avail, scheduled, i, pcp);
       scheduled_process.processor_id = pcp;
     } else {
       double min_eft = DBL_MAX;
@@ -487,12 +561,16 @@ void run_cpop(hc_env *hc_env) {
     }
 
     avail[scheduled_process.processor_id] = scheduled_process.end_time;
+    scheduled_process.start_time = scheduled_process.end_time - hc_env->execution_costs->get(i, scheduled_process.processor_id);
     scheduled[i] = scheduled_process;
     pq.pop();
 
     std::vector<int> succ_i = hc_env->dag->get_successors_of(i);
-    for (int j = 0; j < succ_i.size(); j++) {
-      pq.push(priority_list.at(succ_i.at(j)));
+    for (int n = 0; n < succ_i.size(); n++) {
+      int j = succ_i.at(n);
+      if (scheduled[j].task_node_id == -1 && is_task_ready(hc_env, j, scheduled)) {
+        pq.push(priority_list.at(j));
+      }
     }
   }
 
