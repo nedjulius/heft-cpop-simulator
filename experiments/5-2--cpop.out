@@ -1,45 +1,45 @@
 --- task 1 ---
 Start time: 0
-Finish time: 2
+Finish time: 20
 Processor: 1
 
 --- task 2 ---
-Start time: 10
-Finish time: 12
-Processor: 1
+Start time: 75
+Finish time: 95
+Processor: 2
 
 --- task 3 ---
-Start time: 2
-Finish time: 4
+Start time: 20
+Finish time: 40
 Processor: 1
 
 --- task 4 ---
-Start time: 12
-Finish time: 14
-Processor: 1
+Start time: 95
+Finish time: 115
+Processor: 2
 
 --- task 5 ---
-Start time: 6
-Finish time: 8
-Processor: 1
+Start time: 55
+Finish time: 75
+Processor: 2
 
 --- task 6 ---
-Start time: 4
-Finish time: 6
+Start time: 40
+Finish time: 60
 Processor: 1
 
 --- task 7 ---
-Start time: 8
-Finish time: 10
+Start time: 97
+Finish time: 117
 Processor: 1
 
 --- task 8 ---
-Start time: 14
-Finish time: 16
+Start time: 132
+Finish time: 152
 Processor: 1
 
 ------
-Task count scheduled on processor 1: 8
-Task count scheduled on processor 2: 0
+Task count scheduled on processor 1: 5
+Task count scheduled on processor 2: 3
 ------
-Total execution time: 16
+Total execution time: 152
