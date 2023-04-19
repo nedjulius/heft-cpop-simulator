@@ -20,7 +20,7 @@ A simulator that takes in directed acyclic graph representation of an applicatio
 - The input file describes the DAG and the heterogeneous environment: edges between vertices, processor count, task execution cost per processor, edge communication costs, transfer rates between processors
 - The DAG vertices in the input file are indexed from `1`
 - The processors in the input file are indexed from `1`
-- The provided DAG __must__ have one input task and one exit task
+- The provided DAG __must__ have one start task and one exit task
 - The input file must follow the following structure:
 ```
 - first line, first number is V task count (vertex in DAG count)
