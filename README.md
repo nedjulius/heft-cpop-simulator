@@ -10,16 +10,17 @@ A simulator that takes in directed acyclic graph representation of an applicatio
 ## Running instructions
 
 1. Compile the program based on the instructions above
-2. Run the program in the following format: `./main <ALGORITHM ID> <INPUT FILE PATH>`, where `<ALGORITHM ID>` is `1 (HEFT)` or `1 (CPOP)`; *IMPORTANT*: input files must have `.in` extension
+2. Run the program in the following format: `./main <ALGORITHM ID> <INPUT FILE PATH>`, where `<ALGORITHM ID>` is `1 (HEFT)` or `1 (CPOP)`
+  - __IMPORTANT__: input files must have `.in` extension
 3. The output file will be generated in the same directory where the input file is located with `--heft.out` or `--cpop.out` extension, depending on the algorithm
 
 ## Input file format
 
 - Input file must have `.in` extension
-- The input file describes the application DAG, processor count, execution cost per processor, communication costs, transfer rates between processors
+- The input file describes the DAG and the heterogeneous environment: edges between vertices, processor count, task execution cost per processor, edge communication costs, transfer rates between processors
 - The DAG vertices in the input file are indexed from `1`
 - The processors in the input file are indexed from `1`
-- DAG must have one input task and one exit task
+- The provided DAG __must__ have one input task and one exit task
 - The input file must follow the following structure:
 ```
 - first line, first number is V task count (vertex in DAG count)
