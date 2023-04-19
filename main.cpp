@@ -9,26 +9,6 @@
 #include <algorithm>
 #include <climits>
 
-// command line arguments:
-//
-// ./simulate A config
-// A: 1 - HEFT; 2 - CPOP
-// config: configuration file path
-//
-// configuration format:
-//
-// read the user input first
-// the input is the following:
-// - first number is V task count (vertex in DAG count)
-// - second number is E edge count (all directed edges in DAG)
-// - third number is P processor count
-// - the following E lines are: <from> <to> <weight>
-//   - these E lines stand for the edges in the graph and the data size between them (in bytes)
-// - the following V lines are: <p_1> ... <p_P> (from 1 to P)
-//   - p_i stands for computation cost of task j on processor i
-// - the following (p^2 - p) / 2 lines stand for: <from> <to> <weight>
-//   - each line describes the data transfer rate between processor from and to with weight being bytes per second
-
 class graph {
   private:
     int task_count;
