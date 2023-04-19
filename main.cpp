@@ -251,14 +251,22 @@ namespace rank {
   }
 }
 
-void run_heft(hc_env *hc_env);
-void run_cpop(hc_env *hc_env);
+void run_heft(hc_env *hc_env, std::string write_file_path);
+void run_cpop(hc_env *hc_env, std::string write_file_path);
+
+std::string get_write_file_path(char *input_path, int algorithm_id) {
+  std::string output_path = input_path;
+  std::string ext = ".out";
+  std::string alg = algorithm_id == heft ? "--heft" : "--cpop";
+  output_path = output_path.substr(0, output_path.size() - 3) + alg + ext;
+  return output_path;
+}
 
 int main(int argc, char *argv[]) {
   if (argc != 3) {
-    std::cout << "Usage: ./<executable> A /path-to-config" << std::endl;
+    std::cout << "Usage: ./<executable> A /path-to-input.in" << std::endl;
     std::cout << "A: 1 - HEFT, 2 - CPOP" << std::endl;
-    std::cout << "Refer to README on how to format config" << std::endl;
+    std::cout << "Refer to README on how to format input" << std::endl;
     return 0;
   }
 
@@ -267,10 +275,10 @@ int main(int argc, char *argv[]) {
 
   switch (algorithm_id) {
     case heft:
-      run_heft(hc_env);
+      run_heft(hc_env, get_write_file_path(argv[2], algorithm_id));
       break;
     case cpop:
-      run_cpop(hc_env);
+      run_cpop(hc_env, get_write_file_path(argv[2], algorithm_id));
     default:
       break;
   }
@@ -405,8 +413,8 @@ bool is_task_ready(hc_env *hc_env, int i, process *scheduled) {
   return is_ready;
 }
 
-void write_results(process *scheduled, int task_count, int processor_count, string write_file_path) {
-  ofstream wf(write_file_path);
+void write_results(process *scheduled, int task_count, int processor_count, std::string write_file_path) {
+  std::ofstream wf(write_file_path);
 
   if (!wf.is_open()) {
     std::cout << "An unexpected error occurred while trying to open write file." << std::endl;
@@ -435,29 +443,7 @@ void write_results(process *scheduled, int task_count, int processor_count, stri
   wf.close();
 }
 
-void print_results(process *scheduled, int task_count, int processor_count) {
-  double max_end_time = -1;
-  std::vector<int> scheduled_processor_counts(processor_count, 0);
-
-  for (int i = 0; i < task_count; i++) {
-    std::cout << "--- task " << scheduled[i].task_node_id + 1 << " ---" << std::endl;
-    std::cout << "Start time: " << scheduled[i].start_time << std::endl;
-    std::cout << "Finish time: " << scheduled[i].end_time << std::endl;
-    std::cout << "Processor: " << scheduled[i].processor_id + 1 << std::endl;
-    std::cout << std::endl;
-    scheduled_processor_counts.at(scheduled[i].processor_id)++;
-    max_end_time = std::max(max_end_time, scheduled[i].end_time);
-  }
-
-  std::cout << "------" << std::endl;
-  for (int i = 0; i < scheduled_processor_counts.size(); i++)
-    std::cout << "Task count scheduled on processor " << i + 1 << ": " << scheduled_processor_counts.at(i) << std::endl;
-
-  std::cout << "------" << std::endl;
-  std::cout << "Total execution time: " << max_end_time << std::endl;
-}
-
-void run_heft(hc_env *hc_env) {
+void run_heft(hc_env *hc_env, std::string write_file_path) {
   int task_count = hc_env->task_count;
   int processor_count = hc_env->processor_count;
 
@@ -488,7 +474,7 @@ void run_heft(hc_env *hc_env) {
     waiting_tasks.pop();
   }
 
-  print_results(scheduled, task_count, processor_count);
+  write_results(scheduled, task_count, processor_count, write_file_path);
 
   delete[] avail;
   delete[] scheduled;
@@ -498,7 +484,7 @@ bool cmpf(double a, double b, double epsilon = 0.005f) {
   return (fabs(a - b) < epsilon);
 }
 
-void run_cpop(hc_env *hc_env) {
+void run_cpop(hc_env *hc_env, std::string write_file_path) {
   int task_count = hc_env->task_count;
   int processor_count = hc_env->processor_count;
   int end_task_node_id = task_count - 1;
@@ -574,7 +560,7 @@ void run_cpop(hc_env *hc_env) {
     }
   }
 
-  print_results(scheduled, task_count, processor_count);
+  write_results(scheduled, task_count, processor_count, write_file_path);
 
   delete[] scheduled;
   delete[] avail;

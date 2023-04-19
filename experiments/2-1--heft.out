@@ -1,0 +1,44 @@
+--- task 1 ---
+Start time: 0
+Finish time: 400
+Processor: 1
+
+--- task 2 ---
+Start time: 400
+Finish time: 800
+Processor: 1
+
+--- task 3 ---
+Start time: 800
+Finish time: 1200
+Processor: 1
+
+--- task 4 ---
+Start time: 1200
+Finish time: 1600
+Processor: 1
+
+--- task 5 ---
+Start time: 1600
+Finish time: 2000
+Processor: 1
+
+--- task 6 ---
+Start time: 2000
+Finish time: 2400
+Processor: 1
+
+--- task 7 ---
+Start time: 2400
+Finish time: 2800
+Processor: 1
+
+--- task 8 ---
+Start time: 2800
+Finish time: 3200
+Processor: 1
+
+------
+Task count scheduled on processor 1: 8
+------
+Total execution time: 3200

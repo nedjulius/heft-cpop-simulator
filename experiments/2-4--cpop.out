@@ -1,0 +1,47 @@
+--- task 1 ---
+Start time: 0
+Finish time: 400
+Processor: 1
+
+--- task 2 ---
+Start time: 401
+Finish time: 801
+Processor: 3
+
+--- task 3 ---
+Start time: 400
+Finish time: 800
+Processor: 1
+
+--- task 4 ---
+Start time: 801
+Finish time: 1201
+Processor: 3
+
+--- task 5 ---
+Start time: 800
+Finish time: 1200
+Processor: 1
+
+--- task 6 ---
+Start time: 801
+Finish time: 1201
+Processor: 2
+
+--- task 7 ---
+Start time: 1202
+Finish time: 1602
+Processor: 1
+
+--- task 8 ---
+Start time: 1602
+Finish time: 2002
+Processor: 1
+
+------
+Task count scheduled on processor 1: 5
+Task count scheduled on processor 2: 1
+Task count scheduled on processor 3: 2
+Task count scheduled on processor 4: 0
+------
+Total execution time: 2002
