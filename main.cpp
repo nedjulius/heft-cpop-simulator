@@ -64,7 +64,6 @@ std::vector<int> graph::get_predecessors_of(int i) {
   return predecessor_list.at(i);
 }
 
-// matrix class
 class matrix {
   private:
     int row_length;
@@ -180,13 +179,12 @@ hc_env* hc_env::init_env_from_config(char *config_file_path) {
   return new hc_env(processor_count, task_count, dag, data, transfer_rates, execution_costs);
 }
 
-
-// main stuff
 enum AlgorithmId {
   heft = 1,
   cpop = 2
 };
 
+// rank utilities
 namespace rank {
   double get_communication_cost(hc_env *hc_env, int i, int j, int p1, int p2) {
     if (p1 == p2) {
