@@ -1,6 +1,6 @@
 # HEFT and CPOP Simulator
 
-A simulator that takes in directed acyclic graph representation of an application and simulates HEFT or CPOP heterogeneous scheduling algorithms
+A simulator that takes in directed acyclic graph representation of an application and simulates HEFT or CPOP heterogeneous task scheduling algorithms
 
 ## Compilation instructions
 
