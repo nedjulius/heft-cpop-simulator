@@ -10,7 +10,7 @@ A simulator that takes in directed acyclic graph representation of an applicatio
 ## Running instructions
 
 1. Compile the program based on the instructions above
-2. Run the program in the following format: `./main <ALGORITHM ID> <INPUT FILE PATH>`, where `<ALGORITHM ID>` is `1 (HEFT)` or `1 (CPOP)`
+2. Run the program in the following format: `./main <ALGORITHM ID> <INPUT FILE PATH>`, where `<ALGORITHM ID>` is `1 (HEFT)` or `2 (CPOP)`
   - __IMPORTANT__: input files must have `.in` extension
 3. The output file will be generated in the same directory where the input file is located with `--heft.out` or `--cpop.out` extension, depending on the algorithm
 
